@@ -113,7 +113,8 @@
 (defun berks-viz ()
   "Run berks install for the current berks."
   (interactive)
-  (berks-command "berks viz"))
+  (let ((file (concat ".berks_viz." (number-to-string (random 100000)))))
+    (berks-command (concat "berks viz -o " file "; xdg-open " file "; rm -f " file))))
 
 (defun berks-command (cmd)
   "Run cmd in an async buffer."
