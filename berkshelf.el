@@ -40,6 +40,16 @@
 (defvar berksfile-modification-time 0)
 (defvar berksfile-cookbooks-list-cache nil)
 
+(defun berks-completing-read (prompt collection &optional predicate
+				     require-match initial-input
+				     hist def inherit-input-method)
+  "Try to use ido for completing read. Fallback to default."
+  (if (and (listp collection) (fboundp 'ido-completing-read))
+      (ido-completing-read prompt collection predicate require-match
+			   initial-input hist def inherit-input-method)
+    (completing-read-default prompt collection predicate require-match
+			     initial-input hist def inherit-input-method)))
+
 (defun update-berksfile-change-time ()
   "Use for cache expiration"
   (let ((berksfile (berks-locate-berksfile)))
@@ -157,7 +167,7 @@
 ;;;###autoload
 (defun berks-contingent (cookbook)
   "Run berks contingent for cookbook."
-  (interactive (list (completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
+  (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
   (berks-command (concat "berks contingent " cookbook) "*Berks Contingent*"))
 
 ;;;###autoload
@@ -175,7 +185,7 @@
 ;;;###autoload
 (defun berks-upload (cookbook)
   "Run berks install for the current berks."
-  (interactive (list (completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
+  (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
   (berks-command (concat "berks upload " cookbook) "*Berks Upload*"))
 
 ;;;###autoload
