@@ -7,7 +7,7 @@
 ;; Keywords: berkshelf ruby
 ;; Created: 24 Nov 2016
 ;; Version: 0.1.0
-;; Package-Requires: ((cl-lib "0.5"))
+;; Package-Requires: ((cl-lib "0.5") (json "1.2"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -37,88 +37,67 @@
 
 (require 'cl-lib)
 
-;;;###autoload
-(defun berks-install ()
-  "Run berks install for the current berks."
-  (interactive)
-  (berks-command "berks install"))
+(defvar berksfile-modification-time 0)
+(defvar berksfile-cookbooks-list-cache nil)
 
-;;;###autoload
-(defun berks-list ()
-  "Run berks install for the current berks."
-  (interactive)
-  (berks-command "berks list"))
+(defun update-berksfile-change-time ()
+  "Use for cache expiration"
+  (let ((berksfile (berks-locate-berksfile)))
+    (when berksfile
+      (let ((mod-time (nth 6 (file-attributes berksfile))))
+	(when (not (eq (+ (car mod-time) (cadr mod-time)) berksfile-modification-time))
+	  (setq berksfile-modification-time (+ (car mod-time) (cadr mod-time))))))))
+    
+(defun make-berksfile-cookbooks-cache ()
+  (when (update-berksfile-change-time)
+    (let ((default-directory (berks-locate-berksfile)))
+      (setq berksfile-cookbooks-list-cache
+	    ;; emacs has no standard way to convert array to list.
+	    ;; We use ``append`` than
+	    (append (cdar
+		     (json-read-from-string
+		      (shell-command-to-string "berks list -F json"))) nil)))))
 
-;;;###autoload
-(defun berks-outdated ()
-  "Run berks install for the current berks."
-  (interactive)
-  (berks-command "berks outdated"))
+(defun get-berksfile-cookbooks-list ()
+  (make-berksfile-cookbooks-cache)
+  berksfile-cookbooks-list-cache)
 
-;;;###autoload
-(defun berks-search (cookbook)
-  "Run berks install for the current berks."
-  (interactive "sCookbook Name: ")
-  (berks-command (concat "berks search " cookbookk)))
+(defun get-berksfile-cookbooks-names ()
+  (let ((names))
+    (dolist (cb (get-berksfile-cookbooks-list))
+      (dolist (cb-param cb)
+	(when (eq (car cb-param) 'name)
+	  (push (cdr cb-param) names))))
+    names))
 
-;;;###autoload
-(defun berks-info (cookbook)
-  "Run berks install for the current berks."
-  (interactive "sCookbook Name: ")
-  (berks-command (concat "berks info " cookbookk)))
-
-;;;###autoload
-(defun berks-show (cookbook)
-  "Run berks install for the current berks."
-  (interactive "sCookbook Name: ")
-  (berks-command (concat "berks show " cookbookk)))
-
-;;;###autoload
-(defun berks-update (cookbook)
-  "Run berks install for the current berks."
-  (interactive "sCookbook Name: ")
-  (berks-command (concat "berks update " cookbookk)))
-
-;;;###autoload
-(defun berks-upload (cookbook)
-  "Run berks install for the current berks."
-  (interactive "sCookbook Name: ")
-  (berks-command (concat "berks upload " cookbookk)))
-
-;;;###autoload
-(defun berks-vendor (path)
-  "Run berks install for the current berks."
-  (interactive "sPath Name: ")
-  (berks-command (concat "berks vendor " path)))
-
-;;;###autoload
-(defun berks-package (path)
-  "Run berks install for the current berks."
-  (interactive "sDirectory Name: ")
-  (berks-command (concat "berks package " path)))
-
-;;;###autoload
-(defun berks-install ()
-  "Run berks install for the current berks."
-  (interactive)
-  (berks-command "berks install"))
-
-;;;###autoload
-(defun berks-verify ()
-  "Run berks install for the current berks."
-  (interactive)
-  (berks-command "berks verify"))
-
-;;;###autoload
-(defun berks-viz ()
-  "Run berks install for the current berks."
-  (interactive)
-  (let ((file (concat ".berks_viz." (number-to-string (random 100000)))))
-    (berks-command (concat "berks viz -o " file "; xdg-open " file "; rm -f " file))))
-
-(defun berks-command (cmd)
+(defun berks-command (cmd &optional buffer-name)
   "Run cmd in an async buffer."
-  (async-shell-command cmd "*Berkshelf*"))
+  (let ((default-directory (berks-locate-berksfile))
+	(buffer-name (or buffer-name "*Berkshelf*"))
+	(current-buffer))
+    ;; remove buffer if needed
+    (when (get-buffer buffer-name)
+      (kill-buffer buffer-name))
+    ;;
+    (setq current-buffer (get-buffer-create buffer-name))
+    (princ (shell-command-to-string cmd) current-buffer)
+    (view-buffer current-buffer)))
+
+(defun berkshelf-colorize-compilation-buffer ()
+  "Colorize berkshelf compile buffer output."
+  (toggle-read-only)
+  (ansi-color-apply-on-region compilation-filter-start (point))
+  (toggle-read-only))
+
+;; define berkshelf compilation mode
+(define-compilation-mode berkshelf-compilation-mode "Berkshelf compilation"
+  "Compilation mode for Berkshelf output."
+  (add-hook 'compilation-filter-hook 'berkshelf-colorize-compilation-buffer nil t))
+
+(defun berks-compile (cmd)
+  "Run cmd in an async compilation buffer."
+  (let ((default-directory (berks-locate-berksfile)))
+    (compile cmd 'berkshelf-compilation-mode)))
 
 (defvar berks-gem-list-cache
   (make-hash-table)
@@ -135,6 +114,88 @@
                      default-directory))
              nil)
             ((berks-locate-berksfile (expand-file-name ".." dir))))))
+
+
+;;;###autoload
+(defun berks-install ()
+  "Run berks install for the current berks."
+  (interactive)
+  (berks-compile "berks install"))
+
+;;;###autoload
+(defun berks-update (cookbook)
+  "Run berks update cookbook."
+  (interactive "sCookbook Name: ")
+  (berks-command (concat "berks update " cookbook) "*Berks Update*"))
+
+;;;###autoload
+(defun berks-list ()
+  "Run berks install for the current berks."
+  (interactive)
+  ;; (make-berksfile-cookbooks-cache)
+  (let ((cookbooks-string))
+    (dolist (cb (get-berksfile-cookbooks-list))
+      (let ((cb-name) (cb-version) (cb-location))
+	(dolist (cb-desc cb)
+	  (cond ((eq (car cb-desc) 'name)
+		 (setq cb-name (cdr cb-desc)))
+		((eq (car cb-desc) 'version)
+		 (setq cb-version (cdr cb-desc)))
+		((eq (car cb-desc) 'location)
+		 (setq cb-location (cdr cb-desc)))))
+	(if cb-name
+	    (setq cookbooks-string (concat cookbooks-string "Name: " cb-name)))
+	(if cb-version
+	    (setq cookbooks-string (concat cookbooks-string "\t\t\tVersion: " cb-version)))
+	(if cb-location
+	    (setq cookbooks-string (concat cookbooks-string "\tLocation: " cb-location)))
+	(setq cookbooks-string (concat cookbooks-string "\n"))))
+    ;; print result string
+    (with-output-to-temp-buffer "*Berks List*"
+      (princ cookbooks-string))))
+
+;;;###autoload
+(defun berks-contingent (cookbook)
+  "Run berks contingent for cookbook."
+  (interactive (list (completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
+  (berks-command (concat "berks contingent " cookbook) "*Berks Contingent*"))
+
+;;;###autoload
+(defun berks-outdated ()
+  "Run berks outdated for the current berks."
+  (interactive)
+  (berks-command "berks outdated" "*Berks Outdated*"))
+
+;;;###autoload
+(defun berks-info (cookbook)
+  "Run berks info for cookbook."
+  (interactive "sCookbook Name: ")
+  (berks-command (concat "berks info " cookbook) "*Berks Info*"))
+
+;;;###autoload
+(defun berks-upload (cookbook)
+  "Run berks install for the current berks."
+  (interactive (list (completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
+  (berks-command (concat "berks upload " cookbook) "*Berks Upload*"))
+
+;;;###autoload
+(defun berks-verify ()
+  "Run berks install for the current berks."
+  (interactive)
+  (berks-command "berks verify" "*Berks Verify*"))
+
+;;;###autoload
+(defun berks-viz ()
+  "Run berks install for the current berks."
+  (interactive)
+  (let ((file (concat ".berks_viz." (number-to-string (random 100000)))))
+    (berks-command (concat "berks viz -o " file "; xdg-open " file "; rm -f " file))))
+
+;;;###autoload
+(defun berks-search (cookbook)
+  "Run berks install for the current berks."
+  (interactive "sCookbook Name: ")
+  (berks-command (concat "berks search " cookbook) (concat "*Berks Cookbooks like " cookbook "*")))
 
 (provide 'berkshelf)
 ;;; berkshelf.el ends here.
