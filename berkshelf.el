@@ -106,8 +106,11 @@
 
 (defun berks-compile (cmd)
   "Run cmd in an async compilation buffer."
-  (let ((default-directory (berks-locate-berksfile)))
-    (compile cmd 'berkshelf-compilation-mode)))
+  (let ((root-dir (berks-locate-berksfile)))
+    (if root-dir
+	(let ((default-directory root-dir))
+	  (compile cmd 'berkshelf-compilation-mode))
+      (error "Couldn't locate Berksfile!"))))
 
 (defvar berks-gem-list-cache
   (make-hash-table)
@@ -125,7 +128,6 @@
              nil)
             ((berks-locate-berksfile (expand-file-name ".." dir))))))
 
-
 ;;;###autoload
 (defun berks-install ()
   "Run berks install for the current berks."
@@ -135,8 +137,13 @@
 ;;;###autoload
 (defun berks-update (cookbook)
   "Run berks update cookbook."
+  (berks-compile "berks update"))
+
+;;;###autoload
+(defun berks-update-cookbook (cookbook)
+  "Run berks update cookbook."
   (interactive "sCookbook Name: ")
-  (berks-command (concat "berks update " cookbook) "*Berks Update*"))
+  (berks-compile (concat "berks update " cookbook)))
 
 ;;;###autoload
 (defun berks-list ()
@@ -168,31 +175,31 @@
 (defun berks-contingent (cookbook)
   "Run berks contingent for cookbook."
   (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
-  (berks-command (concat "berks contingent " cookbook) "*Berks Contingent*"))
+  (berks-compile (concat "berks contingent " cookbook)))
 
 ;;;###autoload
 (defun berks-outdated ()
   "Run berks outdated for the current berks."
   (interactive)
-  (berks-command "berks outdated" "*Berks Outdated*"))
+  (berks-compile "berks outdated"))
 
 ;;;###autoload
 (defun berks-info (cookbook)
   "Run berks info for cookbook."
   (interactive "sCookbook Name: ")
-  (berks-command (concat "berks info " cookbook) "*Berks Info*"))
+  (berks-compile (concat "berks info " cookbook)))
 
 ;;;###autoload
 (defun berks-upload (cookbook)
   "Run berks install for the current berks."
   (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
-  (berks-command (concat "berks upload " cookbook) "*Berks Upload*"))
+  (berks-compile (concat "berks upload " cookbook)))
 
 ;;;###autoload
 (defun berks-verify ()
   "Run berks install for the current berks."
   (interactive)
-  (berks-command "berks verify" "*Berks Verify*"))
+  (berks-compile "berks verify"))
 
 ;;;###autoload
 (defun berks-viz ()
@@ -205,7 +212,7 @@
 (defun berks-search (cookbook)
   "Run berks install for the current berks."
   (interactive "sCookbook Name: ")
-  (berks-command (concat "berks search " cookbook) (concat "*Berks Cookbooks like " cookbook "*")))
+  (berks-compile (concat "berks search " cookbook)))
 
 (provide 'berkshelf)
 ;;; berkshelf.el ends here.
