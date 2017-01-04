@@ -135,7 +135,7 @@
   (berks-compile "berks install"))
 
 ;;;###autoload
-(defun berks-update (cookbook)
+(defun berks-update ()
   "Run berks update cookbook."
   (interactive)
   (berks-compile "berks update"))
