@@ -6,7 +6,7 @@
 ;; URL: https://github.com/restaurant-ide/berkshelf.el
 ;; Keywords: berkshelf ruby
 ;; Created: 24 Nov 2016
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((cl-lib "0.5") (json "1.2"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -40,6 +40,55 @@
 (defvar berksfile-modification-time 0)
 (defvar berksfile-cookbooks-list-cache nil)
 
+(defgroup berkshelf nil
+  "Berkshelf mode."
+  :group 'languages)
+
+(defcustom berkshelf-use-bundler-when-possible t
+  "Use `bundle exec` for berkshelf when it's possible"
+  :type 'boolean
+  :group 'berkshelf)
+
+(defun berkshelf-bundler-p ()
+  (and berkshelf-use-bundler-when-possible
+       (shell-command "which bundler")
+       (shell-command "which bundle")))
+
+(defun berks-command (cmd &optional buffer-name)
+  "Run cmd in an async buffer."
+  (let ((default-directory (berks-locate-berksfile))
+	(buffer-name (or buffer-name "*Berkshelf*"))
+	(current-buffer))
+    ;; remove buffer if needed
+    (when (get-buffer buffer-name)
+      (kill-buffer buffer-name))
+    ;;
+    (setq current-buffer (get-buffer-create buffer-name))
+    (princ (shell-command-to-string (concat (and (berkshelf-bundler-p) "bundle exec ") "berks "  cmd)) current-buffer)
+    (view-buffer current-buffer)))
+
+(defun berkshelf-colorize-compilation-buffer ()
+  "Colorize berkshelf compile buffer output."
+  (toggle-read-only)
+  (ansi-color-apply-on-region compilation-filter-start (point))
+  (toggle-read-only))
+
+;; define berkshelf compilation mode
+(define-compilation-mode berkshelf-compilation-mode "Berkshelf compilation"
+  "Compilation mode for Berkshelf output."
+  (add-hook 'compilation-filter-hook 'berkshelf-colorize-compilation-buffer nil t))
+
+(defun berks-compile (cmd)
+  "Run cmd in an async compilation buffer."
+  (let ((root-dir (berks-locate-berksfile)))
+    (if root-dir
+	(let ((default-directory root-dir))
+	  (compile
+	   ;; cmd
+	   (concat (and (berkshelf-bundler-p) "bundle exec ") "berks "  cmd)
+	   'berkshelf-compilation-mode))
+      (error "Couldn't locate Berksfile!"))))
+
 (defun berks-completing-read (prompt collection &optional predicate
 				     require-match initial-input
 				     hist def inherit-input-method)
@@ -66,7 +115,8 @@
 	    ;; We use ``append`` than
 	    (append (cdar
 		     (json-read-from-string
-		      (shell-command-to-string "berks list -F json"))) nil)))))
+		      (shell-command-to-string
+		       (concat (and (berkshelf-bundler-p) "bundle exec ") "berks list -F json")))) nil)))))
 
 (defun get-berksfile-cookbooks-list ()
   (make-berksfile-cookbooks-cache)
@@ -79,38 +129,6 @@
 	(when (eq (car cb-param) 'name)
 	  (push (cdr cb-param) names))))
     names))
-
-(defun berks-command (cmd &optional buffer-name)
-  "Run cmd in an async buffer."
-  (let ((default-directory (berks-locate-berksfile))
-	(buffer-name (or buffer-name "*Berkshelf*"))
-	(current-buffer))
-    ;; remove buffer if needed
-    (when (get-buffer buffer-name)
-      (kill-buffer buffer-name))
-    ;;
-    (setq current-buffer (get-buffer-create buffer-name))
-    (princ (shell-command-to-string cmd) current-buffer)
-    (view-buffer current-buffer)))
-
-(defun berkshelf-colorize-compilation-buffer ()
-  "Colorize berkshelf compile buffer output."
-  (toggle-read-only)
-  (ansi-color-apply-on-region compilation-filter-start (point))
-  (toggle-read-only))
-
-;; define berkshelf compilation mode
-(define-compilation-mode berkshelf-compilation-mode "Berkshelf compilation"
-  "Compilation mode for Berkshelf output."
-  (add-hook 'compilation-filter-hook 'berkshelf-colorize-compilation-buffer nil t))
-
-(defun berks-compile (cmd)
-  "Run cmd in an async compilation buffer."
-  (let ((root-dir (berks-locate-berksfile)))
-    (if root-dir
-	(let ((default-directory root-dir))
-	  (compile cmd 'berkshelf-compilation-mode))
-      (error "Couldn't locate Berksfile!"))))
 
 (defvar berks-gem-list-cache
   (make-hash-table)
@@ -132,19 +150,19 @@
 (defun berks-install ()
   "Run berks install for the current berks."
   (interactive)
-  (berks-compile "berks install"))
+  (berks-compile "install"))
 
 ;;;###autoload
 (defun berks-update ()
   "Run berks update cookbook."
   (interactive)
-  (berks-compile "berks update"))
+  (berks-compile "update"))
 
 ;;;###autoload
 (defun berks-update-cookbook (cookbook)
   "Run berks update cookbook."
   (interactive "sCookbook Name: ")
-  (berks-compile (concat "berks update " cookbook)))
+  (berks-compile (concat "update " cookbook)))
 
 ;;;###autoload
 (defun berks-list ()
@@ -176,44 +194,44 @@
 (defun berks-contingent (cookbook)
   "Run berks contingent for cookbook."
   (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
-  (berks-compile (concat "berks contingent " cookbook)))
+  (berks-compile (concat "contingent " cookbook)))
 
 ;;;###autoload
 (defun berks-outdated ()
   "Run berks outdated for the current berks."
   (interactive)
-  (berks-compile "berks outdated"))
+  (berks-compile "outdated"))
 
 ;;;###autoload
 (defun berks-info (cookbook)
   "Run berks info for cookbook."
   (interactive "sCookbook Name: ")
-  (berks-compile (concat "berks info " cookbook)))
+  (berks-compile (concat "info " cookbook)))
 
 ;;;###autoload
 (defun berks-upload (cookbook)
   "Run berks install for the current berks."
   (interactive (list (berks-completing-read "Cookbook Name: " (get-berksfile-cookbooks-names))))
-  (berks-compile (concat "berks upload " cookbook)))
+  (berks-compile (concat "upload " cookbook)))
 
 ;;;###autoload
 (defun berks-verify ()
   "Run berks install for the current berks."
   (interactive)
-  (berks-compile "berks verify"))
+  (berks-compile "verify"))
 
 ;;;###autoload
 (defun berks-viz ()
   "Run berks install for the current berks."
   (interactive)
   (let ((file (concat ".berks_viz." (number-to-string (random 100000)))))
-    (berks-command (concat "berks viz -o " file "; xdg-open " file "; rm -f " file))))
+    (berks-command (concat "viz -o " file "; xdg-open " file "; rm -f " file))))
 
 ;;;###autoload
 (defun berks-search (cookbook)
   "Run berks install for the current berks."
   (interactive "sCookbook Name: ")
-  (berks-compile (concat "berks search " cookbook)))
+  (berks-compile (concat "search " cookbook)))
 
 (provide 'berkshelf)
 ;;; berkshelf.el ends here.
