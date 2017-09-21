@@ -1,12 +1,12 @@
 ;;; berkshelf.el --- Interact with Berkshelf from Emacs
 
-;; Copyright (c) 2016 Alexander aka CosmonauT Vynnyk <cosmonaut.ok@zoho.com>
+;; Copyright (c) 2016-2017 Alexander aka CosmonauT Vynnyk <cosmonaut.ok@zoho.com>
 
 ;; Author: Tobias Svensson <tob@tobiassvensson.co.uk>
 ;; URL: https://github.com/restaurant-ide/berkshelf.el
 ;; Keywords: berkshelf ruby
 ;; Created: 24 Nov 2016
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((cl-lib "0.5") (json "1.2"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -49,10 +49,48 @@
   :type 'boolean
   :group 'berkshelf)
 
+(defcustom berkshelf-use-chefdk-when-possible nil
+  "Use `chef exec` for berkshelf when it's possible"
+  :type 'boolean
+  :group 'berkshelf)
+
+(defcustom berkshelf-chefdk-home-directory "/opt/chefdk"
+  "Use `chef exec` for berkshelf when it's possible"
+  :type 'directory
+  :group 'berkshelf)
+
+(defcustom berks-base-command "berks"
+  "Base berkshelf command."
+  :type 'string
+  :group 'berkshelf)
+
+(defun chefdk-chef-command ()
+  "Get chef command, when use chefDK."
+  (let ((chef-file-full-path (concat
+			      (file-name-as-directory berkshelf-chefdk-home-directory)
+			      (file-name-as-directory "bin")
+			      "chef")))
+    (when (file-executable-p chef-file-full-path)
+      chef-file-full-path)))
+
 (defun berkshelf-bundler-p ()
   (and berkshelf-use-bundler-when-possible
        (shell-command "which bundler")
        (shell-command "which bundle")))
+
+(defun berkshelf-chefdk-p ()
+  (and berkshelf-use-chefdk-when-possible
+       (chefdk-chef-command)))
+
+(defun make-complete-berks-command (cmd)
+  "Makes complete berkshelf command as string."
+  (let ((full-berks-command
+	 (cond ((berkshelf-chefdk-p)
+		(concat (chefdk-chef-command) " exec " berks-base-command))
+	       ((berkshelf-bundler-p)
+		(concat "bundle exec " berks-base-command))
+	       (t berks-base-command))))
+    (concat full-berks-command " " cmd)))
 
 (defun berks-command (cmd &optional buffer-name)
   "Run cmd in an async buffer."
@@ -64,7 +102,7 @@
       (kill-buffer buffer-name))
     ;;
     (setq current-buffer (get-buffer-create buffer-name))
-    (princ (shell-command-to-string (concat (and (berkshelf-bundler-p) "bundle exec ") "berks "  cmd)) current-buffer)
+    (princ (shell-command-to-string (make-complete-berks-command cmd)) current-buffer)
     (view-buffer current-buffer)))
 
 (defun berkshelf-colorize-compilation-buffer ()
@@ -85,7 +123,7 @@
 	(let ((default-directory root-dir))
 	  (compile
 	   ;; cmd
-	   (concat (and (berkshelf-bundler-p) "bundle exec ") "berks "  cmd)
+	   (make-complete-berks-command cmd)
 	   'berkshelf-compilation-mode))
       (error "Couldn't locate Berksfile!"))))
 
